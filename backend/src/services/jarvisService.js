@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { config } from "../config/env.js";
+import { playYoutube, pauseYoutube, resumeYoutube, nextYoutube, setYoutubeVolume } from "../tools/youtubeTool.js";
 
 const ai = new GoogleGenAI({
   apiKey: config.geminiApiKey
@@ -36,7 +37,9 @@ User: How are you?
 JARVIS: All systems are operational, sir.
 `;
 
-const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+// Google currently routes new Gemini API users to the Gemini 3.x models.
+// Keep a second supported model as a fallback for temporary availability issues.
+const models = ["gemini-3.6-flash", "gemini-3.5-flash"];
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const trySimpleMath = (command) => {
@@ -46,6 +49,18 @@ const trySimpleMath = (command) => {
     const result = Function(`"use strict"; return (${expression})`)();
     return typeof result === "number" && Number.isFinite(result) ? `The answer is ${result}.` : null;
   } catch { return null; }
+};
+
+const youtubeIntent = async (command) => {
+  const text = command.trim();
+  const volume = text.match(/(?:volume|sound)(?:\s+to|\s+at)?\s+(\d{1,3})/i);
+  if (volume) return setYoutubeVolume(volume[1]);
+  if (/^(pause|stop)(?:\s+the)?\s*(youtube|video|music)?$/i.test(text)) return pauseYoutube();
+  if (/^(resume|continue)(?:\s+the)?\s*(youtube|video|music)?$/i.test(text)) return resumeYoutube();
+  if (/^(next|skip)(?:\s+to)?(?:\s+the)?\s*(video|song|youtube)?$/i.test(text)) return nextYoutube();
+  const play = text.match(/^(?:play|search for|find)\s+(.+?)(?:\s+on\s+youtube)?$/i);
+  if (play) return playYoutube(play[1].trim());
+  return null;
 };
 
 export const processCommand = async (command) => {
@@ -58,6 +73,9 @@ export const processCommand = async (command) => {
 
   const mathAnswer = trySimpleMath(command);
   if (mathAnswer) return { response: mathAnswer, action: "calculation" };
+
+  const youtubeResult = await youtubeIntent(command);
+  if (youtubeResult) return { response: youtubeResult.message || youtubeResult.error, action: youtubeResult.action, toolResult: youtubeResult };
 
   for (const model of models) {
     try {
@@ -91,8 +109,9 @@ export const processCommand = async (command) => {
         error.message
       );
 
-      // Try the next model only for temporary server/demand errors
-      if (error.status === 503 || error.status === 429) {
+      // A 404 can mean the model is retired or unavailable for this account.
+      // Continue to the next configured model in that case.
+      if (error.status === 404 || error.status === 503 || error.status === 429) {
         console.log(`Trying fallback model...`);
         continue;
       }

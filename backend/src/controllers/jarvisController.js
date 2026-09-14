@@ -2,7 +2,7 @@ import { processCommand } from "../services/jarvisService.js";
 
 export const handleCommand = async (req, res) => {
   try {
-    const { command } = req.body;
+    const command = req.body.command ?? req.body.message;
     if (typeof command !== "string" || !command.trim()) return res.status(400).json({ success: false, message: "Command is required." });
     const result = await processCommand(command);
     if (result.action === "temporary_error") return res.status(503).json({ success: false, ...result });
