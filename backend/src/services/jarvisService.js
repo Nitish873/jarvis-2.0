@@ -54,9 +54,10 @@ const trySimpleMath = (command) => {
 };
 
 const youtubeIntent = async (command) => {
-  const text = command.trim();
-  if (/^(open\s+)?chrome$/i.test(text)) return { success: true, action: "OPEN_CHROME", message: "Opening Chrome." };
-  if (/^(open\s+)?youtube$/i.test(text)) return { success: true, action: "OPEN_YOUTUBE", message: "Opening YouTube." };
+  const text = command.trim().replace(/[.!?,]+$/g, "").replace(/\s+/g, " ");
+  const simpleText = text.replace(/^(please|can you|could you)\s+/i, "");
+  if (/^(open\s+)?chrome$/i.test(simpleText)) return { success: true, action: "OPEN_CHROME", message: "Opening Chrome." };
+  if (/^(open\s+)?youtube(?:\.com)?$/i.test(simpleText)) return { success: true, action: "OPEN_YOUTUBE", message: "Opening YouTube, ready for your search." };
   const googleSearch = text.match(/^(?:search(?:\s+for)?|google)\s+(.+)$/i);
   if (googleSearch) return { success: true, action: "SEARCH_GOOGLE", searchQuery: googleSearch[1].trim(), message: `Searching Google for ${googleSearch[1].trim()}.` };
   if (/^(play\s+)?(my\s+)?playlist$/i.test(text)) return config.youtubePlaylistUrl
@@ -80,6 +81,14 @@ export const processCommand = async (command) => {
       action: "none"
     };
   }
+
+  command = command
+    .trim()
+    .replace(/^(hey\s+)?jarvis[\s,.:!-]*/i, "")
+    .replace(/[.!?,]+$/g, "")
+    .trim();
+
+  console.log("Normalized JARVIS command:", command);
 
   if (!config.geminiApiKey) {
     return {

@@ -95,6 +95,14 @@ function JarvisOrb() {
       const command =
         event.results[0][0].transcript;
 
+      const normalizedCommand = command.trim().toLowerCase().replace(/[.!?,]+$/g, "");
+      const openedYoutubeImmediately = /^(?:(?:hey\s+)?jarvis[\s,.:!-]+)?(?:please\s+)?open\s+youtube(?:\.com)?$/.test(normalizedCommand);
+      if (openedYoutubeImmediately) {
+        // Open from the recognition callback while it is still user initiated,
+        // avoiding popup blockers after the asynchronous backend request.
+        window.open("https://www.youtube.com", "_blank", "noopener,noreferrer");
+      }
+
       setListening(false);
       setThinking(true);
 
@@ -108,8 +116,8 @@ function JarvisOrb() {
         const responseText = data.response || data.message || "Done.";
         setMessage(`Jarvis: ${responseText}`);
 
-        if (data.action === "OPEN_CHROME") window.open("https://www.google.com", "_blank");
-        if (data.action === "OPEN_YOUTUBE") window.open("https://www.youtube.com", "_blank");
+        if (data.action === "OPEN_CHROME") window.open("https://www.google.com", "_blank", "noopener,noreferrer");
+        if (data.action === "OPEN_YOUTUBE" && !openedYoutubeImmediately) window.open("https://www.youtube.com", "_blank", "noopener,noreferrer");
         if (data.action === "SEARCH_GOOGLE" && data.toolResult?.searchQuery) {
           window.open(`https://www.google.com/search?q=${encodeURIComponent(data.toolResult.searchQuery)}`, "_blank");
         }
