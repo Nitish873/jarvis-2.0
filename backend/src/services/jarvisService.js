@@ -1,10 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { config } from "../config/env.js";
-import { playYoutube, pauseYoutube, resumeYoutube, nextYoutube, setYoutubeVolume } from "../tools/youtubeTool.js";
+import { playYoutube, pauseYoutube, resumeYoutube, nextYoutube, stopYoutube, setYoutubeVolume } from "../tools/youtubeTool.js";
 
 const ai = new GoogleGenAI({
   apiKey: config.geminiApiKey
 });
+
+console.log("Gemini key exists:", Boolean(config.geminiApiKey));
 
 const SYSTEM_INSTRUCTION = `
 You are JARVIS, a personal AI voice assistant.
@@ -37,9 +39,9 @@ User: How are you?
 JARVIS: All systems are operational, sir.
 `;
 
-// Google currently routes new Gemini API users to the Gemini 3.x models.
-// Keep a second supported model as a fallback for temporary availability issues.
-const models = ["gemini-3.6-flash", "gemini-3.5-flash"];
+// Keep the model list on generally available Gemini API model IDs. A retired
+// model returns 404 and must not be treated as an API-key configuration error.
+const models = [config.geminiModel];
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const trySimpleMath = (command) => {
@@ -53,9 +55,17 @@ const trySimpleMath = (command) => {
 
 const youtubeIntent = async (command) => {
   const text = command.trim();
+  if (/^(open\s+)?chrome$/i.test(text)) return { success: true, action: "OPEN_CHROME", message: "Opening Chrome." };
+  if (/^(open\s+)?youtube$/i.test(text)) return { success: true, action: "OPEN_YOUTUBE", message: "Opening YouTube." };
+  const googleSearch = text.match(/^(?:search(?:\s+for)?|google)\s+(.+)$/i);
+  if (googleSearch) return { success: true, action: "SEARCH_GOOGLE", searchQuery: googleSearch[1].trim(), message: `Searching Google for ${googleSearch[1].trim()}.` };
+  if (/^(play\s+)?(my\s+)?playlist$/i.test(text)) return config.youtubePlaylistUrl
+    ? { success: true, action: "PLAY_PLAYLIST", playlistUrl: config.youtubePlaylistUrl, message: "Playing your playlist." }
+    : { success: false, action: "PLAY_PLAYLIST", message: "Your YouTube playlist has not been configured yet." };
   const volume = text.match(/(?:volume|sound)(?:\s+to|\s+at)?\s+(\d{1,3})/i);
   if (volume) return setYoutubeVolume(volume[1]);
-  if (/^(pause|stop)(?:\s+the)?\s*(youtube|video|music)?$/i.test(text)) return pauseYoutube();
+  if (/^pause(?:\s+the)?\s*(youtube|video|music)?$/i.test(text)) return pauseYoutube();
+  if (/^stop(?:\s+the)?\s*(youtube|video|music)?$/i.test(text)) return stopYoutube();
   if (/^(resume|continue)(?:\s+the)?\s*(youtube|video|music)?$/i.test(text)) return resumeYoutube();
   if (/^(next|skip)(?:\s+to)?(?:\s+the)?\s*(video|song|youtube)?$/i.test(text)) return nextYoutube();
   const play = text.match(/^(?:play|search for|find)\s+(.+?)(?:\s+on\s+youtube)?$/i);
@@ -71,19 +81,28 @@ export const processCommand = async (command) => {
     };
   }
 
+  if (!config.geminiApiKey) {
+    return {
+      response: "My Gemini API key is missing. Add GEMINI_API_KEY to backend/.env and restart the backend.",
+      action: "error"
+    };
+  }
+
   const mathAnswer = trySimpleMath(command);
   if (mathAnswer) return { response: mathAnswer, action: "calculation" };
 
   const youtubeResult = await youtubeIntent(command);
-  if (youtubeResult) return { response: youtubeResult.message || youtubeResult.error, action: youtubeResult.action, toolResult: youtubeResult };
+  if (youtubeResult) return { response: youtubeResult.message || youtubeResult.error, action: youtubeResult.action, success: youtubeResult.success !== false, toolResult: youtubeResult };
 
+  let lastGeminiError;
   for (const model of models) {
     try {
       console.log(`Trying Gemini model: ${model}`);
 
       let response;
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      for (let attempt = 1; attempt <= 1; attempt += 1) {
         try {
+          console.log(`Calling Gemini with model: ${model}`);
           response = await ai.models.generateContent({ model, contents: command, config: { systemInstruction: SYSTEM_INSTRUCTION } });
           break;
         } catch (error) {
@@ -103,11 +122,8 @@ export const processCommand = async (command) => {
       };
 
     } catch (error) {
-      console.error(
-        `Gemini model ${model} failed:`,
-        error.status,
-        error.message
-      );
+      lastGeminiError = error;
+      console.error("GEMINI API ERROR", { model, name: error.name, status: error.status, message: error.message });
 
       // A 404 can mean the model is retired or unavailable for this account.
       // Continue to the next configured model in that case.
@@ -118,18 +134,9 @@ export const processCommand = async (command) => {
 
       // Authentication / invalid request errors shouldn't
       // be hidden by trying other models.
-      return {
-        response:
-          "There is a problem with my AI configuration. Please check the Gemini API settings.",
-        action: "error"
-      };
+      throw error;
     }
   }
 
-  return {
-    response:
-      "My AI service is temporarily busy. Your API key is working; please try again in a moment.",
-    action: "temporary_error",
-    retryable: true
-  };
+  throw lastGeminiError || new Error("Gemini request failed without an error response.");
 };

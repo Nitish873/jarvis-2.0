@@ -105,9 +105,17 @@ function JarvisOrb() {
 
         setThinking(false);
 
-        setMessage(`Jarvis: ${data.response}`);
+        const responseText = data.response || data.message || "Done.";
+        setMessage(`Jarvis: ${responseText}`);
 
-        speak(data.response);
+        if (data.action === "OPEN_CHROME") window.open("https://www.google.com", "_blank");
+        if (data.action === "OPEN_YOUTUBE") window.open("https://www.youtube.com", "_blank");
+        if (data.action === "SEARCH_GOOGLE" && data.toolResult?.searchQuery) {
+          window.open(`https://www.google.com/search?q=${encodeURIComponent(data.toolResult.searchQuery)}`, "_blank");
+        }
+        if (data.action === "PLAY_PLAYLIST" && data.toolResult?.playlistUrl) window.open(data.toolResult.playlistUrl, "_blank");
+
+        speak(responseText);
       } catch (error) {
         console.error(error);
 
